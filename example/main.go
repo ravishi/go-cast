@@ -7,6 +7,7 @@ import (
 	"github.com/oleksandr/bonjour"
 	"github.com/ravishi/go-castv2/cast"
 	"github.com/ravishi/go-castv2/cast/ctrl"
+	"golang.org/x/net/context"
 	"log"
 	"os"
 	"os/signal"
@@ -16,32 +17,13 @@ import (
 func main() {
 	entriesCh := make(chan *bonjour.ServiceEntry, 4)
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	go func() {
 		for entry := range entriesCh {
 			log.Print("Found a Chromecast:")
 			spew.Dump(entry)
-
-			addr := fmt.Sprintf("%s:%d", entry.AddrIPv4, entry.Port)
-
-			conn, err := tls.Dial("tcp", addr, &tls.Config{
-				InsecureSkipVerify: true,
-			})
-			if err != nil {
-				log.Println("Failed to connect:", err)
-				return
-			}
-
-			chanmgr := cast.NewChanneler(conn)
-
-			connection := ctrl.NewConnectionController(chanmgr, "sender-0", "receiver-0")
-
-			go chanmgr.Run()
-
-			time.Sleep(time.Second * 1)
-
-			connection.Connect()
-
-			select {}
+			connect(entry, ctx)
 		}
 	}()
 
@@ -65,4 +47,37 @@ func main() {
 	// Block until a signal is received.
 	s := <-c
 	fmt.Println("Got signal:", s)
+	cancel()
+}
+
+func connect(entry *bonjour.ServiceEntry, ctx context.Context) {
+	addr := fmt.Sprintf("%s:%d", entry.AddrIPv4, entry.Port)
+
+	conn, err := tls.Dial("tcp", addr, &tls.Config{
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		log.Println("Failed to connect:", err)
+		return
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+
+	chanmgr := cast.NewChanneler(ctx, conn)
+
+	go func() {
+		defer cancel()
+		defer chanmgr.Close()
+		chanmgr.Consume(ctx)
+	}()
+
+	connection := ctrl.NewConnectionController(chanmgr, "sender-0", "receiver-0")
+
+	time.Sleep(time.Second * 3)
+
+	connection.Connect()
+
+	select {
+	case <-ctx.Done():
+	}
 }

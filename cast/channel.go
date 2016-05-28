@@ -6,14 +6,14 @@ import (
 )
 
 type Channel struct {
-	mgr           *channeler
+	mgr           *Channeler
 	ch            chan *CastMessage
 	namespace     string
 	sourceId      string
 	destinationId string
 }
 
-func newChannel(mgr *channeler, namespace, sourceId, destinationId string) *Channel {
+func newChannel(mgr *Channeler, namespace, sourceId, destinationId string) *Channel {
 	return &Channel{
 		mgr:           mgr,
 		sourceId:      sourceId,

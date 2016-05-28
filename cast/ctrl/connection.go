@@ -1,7 +1,6 @@
 package ctrl
 
 import (
-	"encoding/json"
 	"github.com/ravishi/go-castv2/cast"
 )
 
@@ -12,28 +11,20 @@ var (
 	ConnectionNamespace = "urn:x-cast:com.google.cast.tp.connection"
 )
 
-type connectionController struct {
+type ConnectionController struct {
 	ch *cast.Channel
 }
 
-func NewConnectionController(chmgr cast.Channeler, sourceId, destinationId string) *connectionController {
-	return &connectionController{
-		ch: chmgr.NewChannel(ConnectionNamespace, sourceId, destinationId),
+func NewConnectionController(chanmgr *cast.Channeler, sourceId, destinationId string) *ConnectionController {
+	return &ConnectionController{
+		ch: chanmgr.NewChannel(ConnectionNamespace, sourceId, destinationId),
 	}
 }
 
-func (c *connectionController) Connect() error {
+func (c *ConnectionController) Connect() error {
 	return send(c.ch, ConnectCommand)
 }
 
-func (c *connectionController) Close() error {
+func (c *ConnectionController) Close() error {
 	return send(c.ch, CloseCommand)
-}
-
-func send(ch *cast.Channel, payload interface{}) error {
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	return ch.Send(string(jsonData))
 }

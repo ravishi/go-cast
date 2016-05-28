@@ -2,28 +2,26 @@ package cast
 
 import (
 	"github.com/davecgh/go-spew/spew"
+	"golang.org/x/net/context"
 	"io"
 	"log"
 	"sync"
 )
 
-type channeler struct {
-	wg      *sync.WaitGroup
-	conn    io.ReadWriteCloser
+type Channeler struct {
+	conn    io.ReadWriter
 	input   chan *CastMessage
 	reg     chan *Channel
 	unreg   chan *Channel
 	outputs map[*Channel]bool
-	done    chan interface{}
+	wg      *sync.WaitGroup
+	ctx     context.Context
+	cancel  context.CancelFunc
 }
 
-type Channeler interface {
-	Run()
-	Stop() error
-	NewChannel(namespace, sourceId, destinationId string) *Channel
-}
-
-func (b *channeler) broadcast(m *CastMessage) {
+func (b *Channeler) broadcast(m *CastMessage) {
+	log.Println("Broadcasting message:")
+	spew.Dump(m)
 	for c := range b.outputs {
 		if *m.Namespace != c.namespace ||
 			*m.DestinationId != c.sourceId && *m.DestinationId != "*" ||
@@ -34,17 +32,18 @@ func (b *channeler) broadcast(m *CastMessage) {
 	}
 }
 
-func (b *channeler) send(m *CastMessage) {
-	if b != nil {
-		b.input <- m
-	}
+func (b *Channeler) send(m *CastMessage) {
+	b.input <- m
 }
 
-func (b *channeler) unregister(c *Channel) {
+func (b *Channeler) unregister(c *Channel) {
 	b.unreg <- c
 }
-func (b *channeler) broadcastForever() {
-	defer log.Println("Stopping with the broadcast...")
+
+// This function will just broadcast messages arriving at `<-b.input`
+// until either it or `<-b.done` are closed.
+func (b *Channeler) broadcastForever() {
+	defer log.Println("Broadcast cancelled")
 	for {
 		select {
 		case c := <-b.unreg:
@@ -58,26 +57,26 @@ func (b *channeler) broadcastForever() {
 			} else {
 				return
 			}
-		case <-b.done:
+		case <-b.ctx.Done():
 			return
 		}
 	}
 }
 
-// New creates a new Channeler with the given input channel buffer length.
-func NewChanneler(conn io.ReadWriteCloser) Channeler {
-	w := &channeler{
-		wg:      &sync.WaitGroup{},
+func NewChanneler(ctx context.Context, conn io.ReadWriter) *Channeler {
+	ctx, cancel := context.WithCancel(ctx)
+
+	w := &Channeler{
+		ctx:     ctx,
+		cancel:  cancel,
 		conn:    conn,
-		input:   make(chan *CastMessage),
+		wg:      &sync.WaitGroup{},
 		reg:     make(chan *Channel),
 		unreg:   make(chan *Channel),
+		input:   make(chan *CastMessage),
 		outputs: make(map[*Channel]bool),
-		done:    make(chan interface{}),
 	}
 
-	// This goroutine will just broadcast messages arriving at `<-b.input`
-	// until either it or `<-b.done` are closed.
 	go func() {
 		w.wg.Add(1)
 		defer w.wg.Done()
@@ -87,43 +86,34 @@ func NewChanneler(conn io.ReadWriteCloser) Channeler {
 	return w
 }
 
-func (b *channeler) NewChannel(namespace, sourceId, destinationId string) *Channel {
+func (b *Channeler) NewChannel(namespace, sourceId, destinationId string) *Channel {
 	ch := newChannel(b, namespace, sourceId, destinationId)
 	b.reg <- ch
 	return ch
 }
 
-func (b *channeler) Run() {
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
-	go func(wg *sync.WaitGroup, r io.Reader, messageCh chan<- *CastMessage, done <-chan interface{}) {
-		defer wg.Done()
-		for {
-			select {
-			case <-done:
-				log.Println("Returning as request")
+func (b *Channeler) Consume(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("Consumption stopped:", ctx.Err())
+			return
+		default:
+			message, err := Read(b.conn)
+			if err == nil {
+				b.input <- message
+			} else if err == io.EOF {
+				log.Println("Consumption stopped:", "Underlying connection was closed")
 				return
-			default:
-				message, err := Read(r)
-				if err == nil {
-					log.Println("Incoming message:")
-					spew.Dump(message)
-					messageCh <- message
-				} else if err == io.EOF {
-					log.Println("Underlying connection was closed")
-					return
-				} else if err != io.ErrNoProgress {
-					log.Println("Error while reading message:", err)
-				}
+			} else if err != io.ErrNoProgress {
+				log.Println("Error while reading message:", err)
 			}
 		}
-	}(wg, b.conn, b.input, b.done)
-
-	wg.Wait()
+	}
 }
 
-func (b *channeler) Stop() error {
-	close(b.done)
+func (b *Channeler) Close() error {
+	b.ctx.Done()
 	close(b.reg)
 	return nil
 }
