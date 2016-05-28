@@ -21,9 +21,11 @@ func main() {
 
 	go func() {
 		for entry := range entriesCh {
-			log.Print("Found a Chromecast:")
+			log.Print("New device found:")
 			spew.Dump(entry)
-			connect(entry, ctx)
+
+			err := consume(entry, ctx)
+			log.Println("Device disconnected:", err)
 		}
 	}()
 
@@ -50,34 +52,74 @@ func main() {
 	cancel()
 }
 
-func connect(entry *bonjour.ServiceEntry, ctx context.Context) {
+// FIXME It works, but something is holding the context open when the remote connection is closed. Maybe it's a deadlock? Who knows.
+func consume(entry *bonjour.ServiceEntry, ctx context.Context) error {
 	addr := fmt.Sprintf("%s:%d", entry.AddrIPv4, entry.Port)
 
 	conn, err := tls.Dial("tcp", addr, &tls.Config{
 		InsecureSkipVerify: true,
 	})
 	if err != nil {
-		log.Println("Failed to connect:", err)
-		return
+		return fmt.Errorf("Failed to connect: %s", err)
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
+	// Cancel all pending goroutines before closing the connection. Hopefully.
+	defer conn.Close()
 
+	// Consume the connection forever.
 	chanmgr := cast.NewChanneler(ctx, conn)
-
 	go func() {
-		defer cancel()
 		defer chanmgr.Close()
 		chanmgr.Consume(ctx)
 	}()
 
+	// Send a connect in 2s
 	connection := ctrl.NewConnectionController(chanmgr, "sender-0", "receiver-0")
+	select {
+	case <-ctx.Done():
+		err := connection.Close()
+		if err != nil {
+			log.Println("Failed to close connection:", err)
+		}
+	case <-time.After(time.Second * 2):
+		err := connection.Connect()
+		if err != nil {
+			log.Println("Failed to connect:", err)
+		}
+	}
 
-	time.Sleep(time.Second * 3)
+	// ping-pong each 5s, timeout after 3 missed messages.
+	heartbeat := ctrl.NewHeartbeatController(chanmgr, "sender-0", "receiver-0")
+	go func() {
+		interval := time.Duration(time.Second * 5)
+		for {
+			select {
+			case <-ctx.Done():
+				log.Println("Stopping beat:", ctx.Err())
+				return
+			case <-time.After(interval):
+			}
 
-	connection.Connect()
+			ctx, _ := context.WithTimeout(ctx, interval*time.Duration(3))
+			err := pingThenWaitPong(heartbeat, ctx)
+			if err == context.DeadlineExceeded || err == context.Canceled {
+				return
+			} else if err != nil {
+				log.Println("Beat error:", err)
+			}
+		}
+	}()
 
 	select {
 	case <-ctx.Done():
 	}
+	return ctx.Err()
+}
+
+func pingThenWaitPong(c *ctrl.HeartbeatController, ctx context.Context) error {
+	requestId, err := c.Ping()
+	if err != nil {
+		return err
+	}
+	return c.WaitPong(ctx, requestId)
 }

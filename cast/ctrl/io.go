@@ -12,3 +12,12 @@ func send(ch *cast.Channel, payload interface{}) error {
 	}
 	return ch.Send(string(jsonData))
 }
+
+func getHeaders(message *cast.CastMessage) (*PayloadHeaders, error) {
+	header := &PayloadHeaders{}
+	err := json.Unmarshal([]byte(*message.PayloadUtf8), header)
+	if err != nil {
+		return nil, err
+	}
+	return header, nil
+}
