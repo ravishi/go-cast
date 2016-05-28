@@ -1,6 +1,11 @@
 package cast
 
-type channel struct {
+import (
+	"github.com/davecgh/go-spew/spew"
+	"log"
+)
+
+type Channel struct {
 	mgr           *channeler
 	ch            chan *CastMessage
 	namespace     string
@@ -8,12 +13,8 @@ type channel struct {
 	destinationId string
 }
 
-type Channel interface {
-	Close() error
-}
-
-func newChannel(mgr *channeler, namespace, sourceId, destinationId string) *channel {
-	return &channel{
+func newChannel(mgr *channeler, namespace, sourceId, destinationId string) *Channel {
+	return &Channel{
 		mgr:           mgr,
 		sourceId:      sourceId,
 		destinationId: destinationId,
@@ -22,7 +23,37 @@ func newChannel(mgr *channeler, namespace, sourceId, destinationId string) *chan
 	}
 }
 
-func (c *channel) Close() error {
+func (c *Channel) Close() error {
 	c.mgr.unregister(c)
 	return nil
+}
+
+func (c *Channel) Channel() <-chan *CastMessage {
+	return c.ch
+}
+
+func (c *Channel) Namespace() string {
+	return c.namespace
+}
+
+func (c *Channel) SourceId() string {
+	return c.sourceId
+}
+
+func (c *Channel) DestinationId() string {
+	return c.destinationId
+}
+
+func (c *Channel) Send(payload string) error {
+	message := &CastMessage{
+		ProtocolVersion: CastMessage_CASTV2_1_0.Enum(),
+		SourceId:        &c.sourceId,
+		DestinationId:   &c.destinationId,
+		Namespace:       &c.namespace,
+		PayloadType:     CastMessage_STRING.Enum(),
+		PayloadUtf8:     &payload,
+	}
+	log.Print("Sending message:")
+	spew.Dump(message)
+	return Write(c.mgr.conn, message)
 }

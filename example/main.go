@@ -6,9 +6,11 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/oleksandr/bonjour"
 	"github.com/ravishi/go-castv2/cast"
+	"github.com/ravishi/go-castv2/cast/ctrl"
 	"log"
 	"os"
 	"os/signal"
+	"time"
 )
 
 func main() {
@@ -31,7 +33,15 @@ func main() {
 
 			chanmgr := cast.NewChanneler(conn)
 
+			connection := ctrl.NewConnectionController(chanmgr, "sender-0", "receiver-0")
+
 			go chanmgr.Run()
+
+			time.Sleep(time.Second * 1)
+
+			connection.Connect()
+
+			select {}
 		}
 	}()
 

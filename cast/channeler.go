@@ -8,22 +8,22 @@ import (
 )
 
 type channeler struct {
+	wg      *sync.WaitGroup
 	conn    io.ReadWriteCloser
 	input   chan *CastMessage
-	reg     chan *channel
-	unreg   chan *channel
-	outputs map[*channel]bool
+	reg     chan *Channel
+	unreg   chan *Channel
+	outputs map[*Channel]bool
 	done    chan interface{}
 }
 
 type Channeler interface {
-	Stop() error
 	Run()
+	Stop() error
+	NewChannel(namespace, sourceId, destinationId string) *Channel
 }
 
 func (b *channeler) broadcast(m *CastMessage) {
-	log.Print("Broadcasting received message: ")
-	spew.Dump(m)
 	for c := range b.outputs {
 		if *m.Namespace != c.namespace ||
 			*m.DestinationId != c.sourceId && *m.DestinationId != "*" ||
@@ -40,62 +40,63 @@ func (b *channeler) send(m *CastMessage) {
 	}
 }
 
-func (b *channeler) unregister(c *channel) {
+func (b *channeler) unregister(c *Channel) {
 	b.unreg <- c
+}
+func (b *channeler) broadcastForever() {
+	defer log.Println("Stopping with the broadcast...")
+	for {
+		select {
+		case c := <-b.unreg:
+			delete(b.outputs, c)
+			close(c.ch)
+		case m := <-b.input:
+			b.broadcast(m)
+		case c, ok := <-b.reg:
+			if ok {
+				b.outputs[c] = true
+			} else {
+				return
+			}
+		case <-b.done:
+			return
+		}
+	}
 }
 
 // New creates a new Channeler with the given input channel buffer length.
 func NewChanneler(conn io.ReadWriteCloser) Channeler {
-	return &channeler{
+	w := &channeler{
+		wg:      &sync.WaitGroup{},
 		conn:    conn,
 		input:   make(chan *CastMessage),
-		reg:     make(chan *channel),
-		unreg:   make(chan *channel),
-		outputs: make(map[*channel]bool),
+		reg:     make(chan *Channel),
+		unreg:   make(chan *Channel),
+		outputs: make(map[*Channel]bool),
 		done:    make(chan interface{}),
 	}
+
+	// This goroutine will just broadcast messages arriving at `<-b.input`
+	// until either it or `<-b.done` are closed.
+	go func() {
+		w.wg.Add(1)
+		defer w.wg.Done()
+		w.broadcastForever()
+	}()
+
+	return w
 }
 
-func (b *channeler) NewChannel(namespace, sourceId, destinationId string) Channel {
+func (b *channeler) NewChannel(namespace, sourceId, destinationId string) *Channel {
 	ch := newChannel(b, namespace, sourceId, destinationId)
 	b.reg <- ch
 	return ch
 }
 
 func (b *channeler) Run() {
-	// Use a wait group so we can spawn goroutines but still block before returning.
-	// This way the caller can still choose how to call us.
-	wg := sync.WaitGroup{}
-	defer wg.Wait()
-
-	// The first goroutine will just broadcast messages arriving at `<-b.input`
-	// until either that or `<-b.done` are closed.
+	wg := &sync.WaitGroup{}
 	wg.Add(1)
-	go func(wg sync.WaitGroup, b *channeler) {
-		defer wg.Done()
-		defer log.Println("Stopping with the broadcast...")
-		for {
-			select {
-			case c := <-b.unreg:
-				delete(b.outputs, c)
-				close(c.ch)
-			case m := <-b.input:
-				b.broadcast(m)
-			case c, ok := <-b.reg:
-				if ok {
-					b.outputs[c] = true
-				} else {
-					return
-				}
-			case <-b.done:
-				return
-			}
-		}
-	}(wg, b)
-
-	// The second goroutine will read the connection until it is closed.
-	wg.Add(1)
-	go func(wg sync.WaitGroup, r io.Reader, messageCh chan<- *CastMessage, done <-chan interface{}) {
+	go func(wg *sync.WaitGroup, r io.Reader, messageCh chan<- *CastMessage, done <-chan interface{}) {
 		defer wg.Done()
 		for {
 			select {
@@ -105,6 +106,8 @@ func (b *channeler) Run() {
 			default:
 				message, err := Read(r)
 				if err == nil {
+					log.Println("Incoming message:")
+					spew.Dump(message)
 					messageCh <- message
 				} else if err == io.EOF {
 					log.Println("Underlying connection was closed")
@@ -115,6 +118,8 @@ func (b *channeler) Run() {
 			}
 		}
 	}(wg, b.conn, b.input, b.done)
+
+	wg.Wait()
 }
 
 func (b *channeler) Stop() error {
