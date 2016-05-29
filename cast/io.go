@@ -11,9 +11,8 @@ var IncompleteReadError = errors.New("Failed to read all the data")
 var IncompleteWriteError = errors.New("Failed to write all the data")
 
 func Read(r io.Reader) (*CastMessage, error) {
-
 	data, err := ReadMessage(r)
-	if err != nil {
+	if err != nil && err != io.EOF {
 		return nil, err
 	}
 
@@ -49,16 +48,17 @@ func ReadMessage(r io.Reader) ([]byte, error) {
 		buf := make([]byte, length)
 
 		i, err := r.Read(buf)
-		if err != nil {
+		if err != nil && err != io.EOF {
 			return nil, err
 		}
 
 		if i < 0 || uint32(i) != length {
-			// XXX Should we try to read again? And again?
 			return nil, IncompleteReadError
 		}
 
-		return buf, nil
+		// Return err. It can be io.EOF meaning we just read
+		// the last message while the connection was closing.
+		return buf, err
 	}
 
 	return nil, io.ErrNoProgress

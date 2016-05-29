@@ -6,6 +6,7 @@ import (
 
 	"github.com/ravishi/go-castv2/cast"
 	"golang.org/x/net/context"
+	"strings"
 )
 
 const (
@@ -54,11 +55,12 @@ func (c *HeartbeatController) Pong() error {
 //
 // Returns nil once PONG arrives or:
 // - an error if we fail the parse any incoming message.
-//   I still don't know if this is a good idea, but yeah.
-// - an error if we end up getting an unexpected message (like not a PONG,
-//   or "addressed at someone else")
-//
-// TODO It would be really cool if callers had a canonical way to check what kind of error we return.
+//   Pro tip, use `IsPareError` to check.
+// - an error if we end up getting an unexpected message
+//   Like not a PONG, or a message that was "addressed at
+//   someone else", who knows what can happen in the guts
+//   of the implementation. Anyway, use `IsUnexpectedResponseError`
+//   to check.
 func (c *HeartbeatController) WaitPong(ctx context.Context, requestId int) error {
 	select {
 	case <-ctx.Done():
@@ -66,13 +68,31 @@ func (c *HeartbeatController) WaitPong(ctx context.Context, requestId int) error
 	case message := <-c.ch.Channel():
 		h, err := getHeaders(message)
 		if err != nil {
-			return fmt.Errorf("Failed to parse message: %s", err)
+			return fmt.Errorf("%s: %s", parseErrorPrefix, err)
 		}
 		if h.Type == PongCommand.Type {
 			if h.RequestId != nil && *h.RequestId != requestId {
-				return fmt.Errorf("Unknown PONG received: %s; while we were expecting %s", h.RequestId, requestId)
+				return fmt.Errorf(
+					"%s: %s; while we were expecting %s",
+					unexpectedResponseErrorPrefix,
+					h.RequestId, requestId)
 			}
 		}
 	}
 	return nil
+}
+
+// \_(ツ)_/¯ What could I do?
+
+const (
+	parseErrorPrefix              = "Failed to parse message"
+	unexpectedResponseErrorPrefix = "Unknown PONG received"
+)
+
+func IsParseError(err error) bool {
+	return strings.HasPrefix(err.Error(), parseErrorPrefix)
+}
+
+func IsUnexpectedResponseError(err error) bool {
+	return strings.HasPrefix(err.Error(), unexpectedResponseErrorPrefix)
 }

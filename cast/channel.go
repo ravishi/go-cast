@@ -53,7 +53,7 @@ func (c *Channel) Send(payload string) error {
 		PayloadType:     CastMessage_STRING.Enum(),
 		PayloadUtf8:     &payload,
 	}
-	log.Print("Sending message:")
+	log.Print("<- Sending message:")
 	spew.Dump(message)
 	return Write(c.mgr.conn, message)
 }
