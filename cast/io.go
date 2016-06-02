@@ -12,18 +12,18 @@ var IncompleteWriteError = errors.New("Failed to write all the data")
 
 func Read(r io.Reader) (*CastMessage, error) {
 	data, err := ReadMessage(r)
-	if err != nil && err != io.EOF {
+	if err != nil && err != io.EOF || data == nil {
 		return nil, err
 	}
 
 	message := &CastMessage{}
-
 	err = proto.Unmarshal(data, message)
 	if err != nil {
 		return nil, err
 	}
 
-	return message, nil
+	// err can still be io.EOF
+	return message, err
 }
 
 func Write(w io.Writer, message *CastMessage) error {
@@ -38,26 +38,28 @@ func Write(w io.Writer, message *CastMessage) error {
 }
 
 func ReadMessage(r io.Reader) ([]byte, error) {
-	var length uint32
-	err := binary.Read(r, binary.BigEndian, &length)
-	if err != nil {
+	length := new(uint32)
+	err := binary.Read(r, binary.BigEndian, length)
+	if err != nil && err != io.EOF || length == nil {
 		return nil, err
 	}
 
-	if length > 0 {
-		buf := make([]byte, length)
+	if *length > 0 {
+		buf := make([]byte, *length)
 
 		i, err := r.Read(buf)
-		if err != nil && err != io.EOF {
+		if err != nil && err != io.EOF || i <= 0 {
 			return nil, err
 		}
 
-		if i < 0 || uint32(i) != length {
-			return nil, IncompleteReadError
+		if uint32(i) != *length {
+			if err == nil {
+				err = IncompleteReadError
+			}
+			return nil, err
 		}
 
-		// Return err. It can be io.EOF meaning we just read
-		// the last message while the connection was closing.
+		// err can still be io.EOF
 		return buf, err
 	}
 

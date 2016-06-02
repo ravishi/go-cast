@@ -15,9 +15,9 @@ type ConnectionController struct {
 	ch *cast.Channel
 }
 
-func NewConnectionController(chanmgr *cast.Channeler, sourceId, destinationId string) *ConnectionController {
+func NewConnectionController(chanmgr *cast.Device, sourceId, destinationId string) *ConnectionController {
 	return &ConnectionController{
-		ch: chanmgr.NewChannel(ConnectionNamespace, sourceId, destinationId),
+		ch: chanmgr.NewChannel(ConnectionNamespace, sourceId, destinationId, 1),
 	}
 }
 
@@ -25,6 +25,7 @@ func (c *ConnectionController) Connect() error {
 	return send(c.ch, ConnectCommand)
 }
 
-func (c *ConnectionController) Close() error {
-	return send(c.ch, CloseCommand)
+func (c *ConnectionController) Close() {
+	send(c.ch, CloseCommand)
+	c.ch.Close()
 }

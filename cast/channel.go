@@ -1,35 +1,29 @@
 package cast
 
-import (
-	"github.com/davecgh/go-spew/spew"
-	"log"
-)
-
 type Channel struct {
-	mgr           *Channeler
-	ch            chan *CastMessage
+	in            chan *CastMessage
+	out           chan *CastMessage
+	ring          *messageRingBuffer
+	device        *Device
 	namespace     string
 	sourceId      string
 	destinationId string
 }
 
-func newChannel(mgr *Channeler, namespace, sourceId, destinationId string) *Channel {
+func newChannel(device *Device, namespace, sourceId, destinationId string, size int) *Channel {
+	in := make(chan *CastMessage)
+	out := make(chan *CastMessage, size)
+	ring := ringBuffer(in, out)
+	device.bc.Sub() <- in
 	return &Channel{
-		mgr:           mgr,
+		in:            in,
+		out:           out,
+		ring:          ring,
+		device:        device,
+		namespace:     namespace,
 		sourceId:      sourceId,
 		destinationId: destinationId,
-		namespace:     namespace,
-		ch:            make(chan *CastMessage),
 	}
-}
-
-func (c *Channel) Close() error {
-	c.mgr.unregister(c)
-	return nil
-}
-
-func (c *Channel) Channel() <-chan *CastMessage {
-	return c.ch
 }
 
 func (c *Channel) Namespace() string {
@@ -44,6 +38,10 @@ func (c *Channel) DestinationId() string {
 	return c.destinationId
 }
 
+func (c *Channel) Read() <-chan *CastMessage {
+	return c.ring.out
+}
+
 func (c *Channel) Send(payload string) error {
 	message := &CastMessage{
 		ProtocolVersion: CastMessage_CASTV2_1_0.Enum(),
@@ -53,7 +51,11 @@ func (c *Channel) Send(payload string) error {
 		PayloadType:     CastMessage_STRING.Enum(),
 		PayloadUtf8:     &payload,
 	}
-	log.Print("<- Sending message:")
-	spew.Dump(message)
-	return Write(c.mgr.conn, message)
+	return c.device.Send(message)
+}
+
+func (c *Channel) Close() {
+	c.device.bc.UnSub() <- c.in
+	close(c.in)
+	close(c.out)
 }
