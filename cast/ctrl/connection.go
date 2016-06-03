@@ -1,7 +1,7 @@
 package ctrl
 
 import (
-	"github.com/ravishi/go-castv2/cast"
+	"github.com/ravishi/go-cast/cast"
 )
 
 var (
