@@ -7,7 +7,6 @@ import (
 	"github.com/oleksandr/bonjour"
 	"github.com/ravishi/go-cast/cast"
 	"github.com/ravishi/go-cast/cast/ctrl"
-	"golang.org/x/net/context"
 	"log"
 	"os"
 	"os/signal"
@@ -32,7 +31,6 @@ func actualMain() error {
 	defer func() { resolver.Exit <- true }()
 
 	services := make(chan *bonjour.ServiceEntry)
-	defer close(services)
 
 	err = resolver.Browse("_googlecast._tcp", ".local", services)
 	if err != nil {
@@ -41,7 +39,6 @@ func actualMain() error {
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, os.Kill)
-
 	defer signal.Stop(sigCh)
 
 	for {
@@ -52,11 +49,11 @@ func actualMain() error {
 			if ok {
 				fmt.Println("Found device:", service.Instance)
 				err := consumeService(sigCh, service)
-				log.Println("Device disconnected:", err)
-				if err == context.Canceled {
-					err = nil
+				if err != nil {
+					return err
+				} else {
+					log.Println("Device disconnected:", service.Instance)
 				}
-				return err
 			} else {
 				return errors.New("Discovery closed unexpectedly")
 			}
@@ -65,6 +62,8 @@ func actualMain() error {
 		}
 	}
 }
+
+var Canceled = errors.New("Canceled")
 
 func consumeService(cancel <-chan os.Signal, service *bonjour.ServiceEntry) error {
 	addr := fmt.Sprintf("%s:%d", service.AddrIPv4, service.Port)
@@ -86,7 +85,7 @@ func consumeService(cancel <-chan os.Signal, service *bonjour.ServiceEntry) erro
 
 	select {
 	case <-cancel:
-		return context.Canceled
+		return Canceled
 	case <-time.After(time.Second * 2):
 		err := connection.Connect()
 		if err != nil {
@@ -94,38 +93,26 @@ func consumeService(cancel <-chan os.Signal, service *bonjour.ServiceEntry) erro
 		}
 	}
 
-	// send a PING every 5s
 	heartbeat := ctrl.NewHeartbeatController(device, "sender-0", "receiver-0")
 	defer heartbeat.Close()
-	heartbeatCtx, cancelHeartbeat := context.WithCancel(context.Background())
-	defer cancelHeartbeat()
+
 	heartbeatError := make(chan error)
-	defer close(heartbeatError)
+
+	// send a PING every 5s, bail after 10.
 	go func() {
-		for {
-			select {
-			case <-heartbeatCtx.Done():
-				return
-			case <-time.After(time.Second * 5):
-				err := heartbeat.Ping()
-				if err != nil {
-					log.Println("Failed to send PING:", err)
-					heartbeatError <- err
-				}
-			}
+		err := heartbeat.Beat(time.Second*5, 2)
+		if err != nil {
+			heartbeatError <- err
 		}
 	}()
 
-	deviceCtx, stopDevice := context.WithCancel(context.Background())
-	defer stopDevice()
-
-	go device.Run(deviceCtx)
+	go device.Run()
 
 	select {
 	case err := <-heartbeatError:
-		return fmt.Errorf("Heartbeat error: %s", err)
+		return err
 	case <-cancel:
-		return context.Canceled
+		return Canceled
 	}
 
 	return nil

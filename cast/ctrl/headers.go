@@ -1,6 +1,5 @@
 package ctrl
 
 type PayloadHeaders struct {
-	Type      string `json:"type"`
-	RequestId *int   `json:"requestId,omitempty"`
+	Type string `json:"type"`
 }

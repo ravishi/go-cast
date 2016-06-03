@@ -13,17 +13,24 @@ type Channel struct {
 func newChannel(device *Device, namespace, sourceId, destinationId string, size int) *Channel {
 	in := make(chan *CastMessage)
 	out := make(chan *CastMessage, size)
-	ring := ringBuffer(in, out)
-	device.bc.Sub() <- in
-	return &Channel{
+	c := &Channel{
 		in:            in,
 		out:           out,
-		ring:          ring,
 		device:        device,
 		namespace:     namespace,
 		sourceId:      sourceId,
 		destinationId: destinationId,
 	}
+	device.bc.Sub() <- c.in
+	c.ring = newMessageRingBuffer(in, out, c.filter)
+	return c
+}
+
+func (c *Channel) filter(m *CastMessage) bool {
+	return *m.Namespace == c.namespace &&
+		*m.SourceId == c.destinationId &&
+		*m.DestinationId == "*" ||
+		*m.DestinationId == c.sourceId
 }
 
 func (c *Channel) Namespace() string {

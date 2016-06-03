@@ -29,6 +29,10 @@ func NewDevice(connection io.ReadWriter) *Device {
 	}
 }
 
+func (d *Device) Context() context.Context {
+	return d.ctx
+}
+
 func (d *Device) NewChannel(namespace, sourceId, destinationId string, size int) *Channel {
 	return newChannel(d, namespace, sourceId, destinationId, size)
 }
@@ -38,12 +42,10 @@ func (d *Device) Send(message *CastMessage) error {
 	return Write(d.conn, message)
 }
 
-func (d *Device) Run(ctx context.Context) error {
+func (d *Device) Run() error {
 	for {
 		select {
 		case <-d.ctx.Done():
-			return nil
-		case <-ctx.Done():
 			return nil
 		default:
 		}
@@ -52,9 +54,9 @@ func (d *Device) Run(ctx context.Context) error {
 		if err == io.ErrNoProgress {
 			continue
 		} else if message != nil {
-			log.Println("<-", message)
 			// if err == io.EOF, message can be not null
 			// and that's why we have this weird branching here.
+			log.Println("<-", message)
 			d.bc.Pub() <- message
 		}
 
