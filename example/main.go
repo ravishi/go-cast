@@ -96,9 +96,11 @@ func consumeService(cancel <-chan os.Signal, service *bonjour.ServiceEntry) erro
 
 	// send a PING every 5s
 	heartbeat := ctrl.NewHeartbeatController(device, "sender-0", "receiver-0")
+	defer heartbeat.Close()
 	heartbeatCtx, cancelHeartbeat := context.WithCancel(context.Background())
 	defer cancelHeartbeat()
-	defer heartbeat.Close()
+	heartbeatError := make(chan error)
+	defer close(heartbeatError)
 	go func() {
 		for {
 			select {
@@ -108,6 +110,7 @@ func consumeService(cancel <-chan os.Signal, service *bonjour.ServiceEntry) erro
 				err := heartbeat.Ping()
 				if err != nil {
 					log.Println("Failed to send PING:", err)
+					heartbeatError <- err
 				}
 			}
 		}
@@ -119,6 +122,8 @@ func consumeService(cancel <-chan os.Signal, service *bonjour.ServiceEntry) erro
 	go device.Run(deviceCtx)
 
 	select {
+	case err := <-heartbeatError:
+		return fmt.Errorf("Heartbeat error: %s", err)
 	case <-cancel:
 		return context.Canceled
 	}
