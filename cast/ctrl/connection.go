@@ -15,9 +15,9 @@ type ConnectionController struct {
 	ch *cast.Channel
 }
 
-func NewConnectionController(chanmgr *cast.Device, sourceId, destinationId string) *ConnectionController {
+func NewConnectionController(device *cast.Device, sourceId, destinationId string) *ConnectionController {
 	return &ConnectionController{
-		ch: chanmgr.NewChannel(ConnectionNamespace, sourceId, destinationId, 1),
+		ch: device.NewChannel(ConnectionNamespace, sourceId, destinationId, 1),
 	}
 }
 

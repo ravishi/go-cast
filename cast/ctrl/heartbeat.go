@@ -20,10 +20,10 @@ type HeartbeatController struct {
 	close context.CancelFunc
 }
 
-func NewHeartbeatController(chanmgr *cast.Device, sourceId, destinationId string) *HeartbeatController {
-	ctx, cancel := context.WithCancel(chanmgr.Context())
+func NewHeartbeatController(device *cast.Device, sourceId, destinationId string) *HeartbeatController {
+	ctx, cancel := context.WithCancel(device.Context())
 	return &HeartbeatController{
-		ch:    chanmgr.NewChannel(HeartbeatNamespace, sourceId, destinationId, 5),
+		ch:    device.NewChannel(HeartbeatNamespace, sourceId, destinationId, 2),
 		ctx:   ctx,
 		close: cancel,
 	}

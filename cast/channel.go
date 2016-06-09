@@ -11,18 +11,16 @@ type Channel struct {
 }
 
 func newChannel(device *Device, namespace, sourceId, destinationId string, size int) *Channel {
-	in := make(chan *CastMessage)
-	out := make(chan *CastMessage, size)
 	c := &Channel{
-		in:            in,
-		out:           out,
+		in:            make(chan *CastMessage),
+		out:           make(chan *CastMessage, size),
 		device:        device,
 		namespace:     namespace,
 		sourceId:      sourceId,
 		destinationId: destinationId,
 	}
 	device.bc.Sub() <- c.in
-	c.ring = newMessageRingBuffer(in, out, c.filter)
+	c.ring = newMessageRingBuffer(c.in, c.out, c.filter)
 	return c
 }
 

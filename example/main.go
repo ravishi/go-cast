@@ -79,6 +79,8 @@ func consumeService(cancel <-chan os.Signal, service *bonjour.ServiceEntry) erro
 	device := cast.NewDevice(conn)
 	defer device.Close()
 
+	go device.Run()
+
 	// Send a connect in 2s
 	connection := ctrl.NewConnectionController(device, "sender-0", "receiver-0")
 	defer connection.Close()
@@ -98,15 +100,18 @@ func consumeService(cancel <-chan os.Signal, service *bonjour.ServiceEntry) erro
 
 	heartbeatError := make(chan error)
 
-	// send a PING every 5s, bail after 10.
 	go func() {
+		// send a PING every 5s, bail after 10.
 		err := heartbeat.Beat(time.Second*5, 2)
 		if err != nil {
 			heartbeatError <- err
 		}
 	}()
 
-	go device.Run()
+	receiver := ctrl.NewReceiverController(device, "sender-0", "receiver-0")
+	defer receiver.Close()
+
+	go receiver.GetStatus()
 
 	select {
 	case err := <-heartbeatError:
