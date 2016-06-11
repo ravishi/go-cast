@@ -5,9 +5,11 @@ import (
 	"golang.org/x/net/context"
 )
 
-var (
+const (
 	ReceiverNamespace = "urn:x-cast:com.google.cast.receiver"
+)
 
+var (
 	GetStatusCommand = PayloadHeaders{Type: "GET_STATUS"}
 )
 
@@ -22,7 +24,7 @@ type ReceiverStatus interface{}
 
 func NewReceiverController(device *cast.Device, sourceId, destinationId string) *ReceiverController {
 	ctx, close := context.WithCancel(context.Background())
-	ch := device.NewChannel(ReceiverNamespace, sourceId, destinationId, 2)
+	ch := device.NewChannel(ReceiverNamespace, sourceId, destinationId)
 	return &ReceiverController{
 		ch:    ch,
 		ctx:   ctx,

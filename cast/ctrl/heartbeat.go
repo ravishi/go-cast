@@ -23,7 +23,7 @@ type HeartbeatController struct {
 func NewHeartbeatController(device *cast.Device, sourceId, destinationId string) *HeartbeatController {
 	ctx, cancel := context.WithCancel(device.Context())
 	return &HeartbeatController{
-		ch:    device.NewChannel(HeartbeatNamespace, sourceId, destinationId, 2),
+		ch:    device.NewChannel(HeartbeatNamespace, sourceId, destinationId),
 		ctx:   ctx,
 		close: cancel,
 	}

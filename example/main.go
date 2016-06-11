@@ -15,7 +15,7 @@ import (
 
 func main() {
 	err := actualMain()
-	if err == nil {
+	if err == nil || err == Canceled {
 		os.Exit(0)
 	} else {
 		fmt.Fprintln(os.Stderr, err)
@@ -85,23 +85,17 @@ func consumeService(cancel <-chan os.Signal, service *bonjour.ServiceEntry) erro
 	connection := ctrl.NewConnectionController(device, "sender-0", "receiver-0")
 	defer connection.Close()
 
-	select {
-	case <-cancel:
-		return Canceled
-	case <-time.After(time.Second * 2):
-		err := connection.Connect()
-		if err != nil {
-			return fmt.Errorf("Failed to connect: %s", err)
-		}
+	err = connection.Connect()
+	if err != nil {
+		return fmt.Errorf("Failed to connect: %s", err)
 	}
 
 	heartbeat := ctrl.NewHeartbeatController(device, "sender-0", "receiver-0")
 	defer heartbeat.Close()
 
+	// send a PING every 5s, bail after 10.
 	heartbeatError := make(chan error)
-
 	go func() {
-		// send a PING every 5s, bail after 10.
 		err := heartbeat.Beat(time.Second*5, 2)
 		if err != nil {
 			heartbeatError <- err

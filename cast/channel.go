@@ -3,32 +3,24 @@ package cast
 type Channel struct {
 	in            chan *CastMessage
 	out           chan *CastMessage
-	ring          *messageRingBuffer
 	device        *Device
 	namespace     string
 	sourceId      string
 	destinationId string
 }
 
-func newChannel(device *Device, namespace, sourceId, destinationId string, size int) *Channel {
-	c := &Channel{
-		in:            make(chan *CastMessage),
-		out:           make(chan *CastMessage, size),
-		device:        device,
-		namespace:     namespace,
-		sourceId:      sourceId,
-		destinationId: destinationId,
+func (c *Channel) filterForever() {
+	for message := range c.in {
+		if c.expects(message) {
+			c.out <- message
+		}
 	}
-	device.bc.Sub() <- c.in
-	c.ring = newMessageRingBuffer(c.in, c.out, c.filter)
-	return c
 }
 
-func (c *Channel) filter(m *CastMessage) bool {
+func (c *Channel) expects(m *CastMessage) bool {
 	return *m.Namespace == c.namespace &&
 		*m.SourceId == c.destinationId &&
-		*m.DestinationId == "*" ||
-		*m.DestinationId == c.sourceId
+		*m.DestinationId == "*" || *m.DestinationId == c.sourceId
 }
 
 func (c *Channel) Namespace() string {
@@ -44,7 +36,7 @@ func (c *Channel) DestinationId() string {
 }
 
 func (c *Channel) Read() <-chan *CastMessage {
-	return c.ring.out
+	return c.out
 }
 
 func (c *Channel) Send(payload string) error {
@@ -60,7 +52,10 @@ func (c *Channel) Send(payload string) error {
 }
 
 func (c *Channel) Close() {
+	// The broadcaster is the only one writing on c.in.
 	c.device.bc.UnSub() <- c.in
+	// And only messages coming from c.in are written on c.out.
+	// Therefore, we should close them in this order.
 	close(c.in)
 	close(c.out)
 }

@@ -33,8 +33,18 @@ func (d *Device) Context() context.Context {
 	return d.ctx
 }
 
-func (d *Device) NewChannel(namespace, sourceId, destinationId string, size int) *Channel {
-	return newChannel(d, namespace, sourceId, destinationId, size)
+func (d *Device) NewChannel(namespace, sourceId, destinationId string) *Channel {
+	c := &Channel{
+		in:            make(chan *CastMessage),
+		out:           make(chan *CastMessage),
+		device:        d,
+		namespace:     namespace,
+		sourceId:      sourceId,
+		destinationId: destinationId,
+	}
+	d.bc.Sub() <- c.in
+	go c.filterForever()
+	return c
 }
 
 func (d *Device) Send(message *CastMessage) error {
