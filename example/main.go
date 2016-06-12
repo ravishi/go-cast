@@ -105,7 +105,7 @@ func consumeService(cancel <-chan os.Signal, service *bonjour.ServiceEntry) erro
 	receiver := ctrl.NewReceiverController(device, "sender-0", "receiver-0")
 	defer receiver.Close()
 
-	go receiver.GetStatus()
+	go receiver.Launch("CC1AD845")
 
 	select {
 	case err := <-heartbeatError:

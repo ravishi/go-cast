@@ -8,6 +8,10 @@ import (
 	"sync/atomic"
 )
 
+type Request interface {
+	setRequestId(int32)
+}
+
 type Response struct {
 	header  *MessageHeader
 	message *json.RawMessage
@@ -36,6 +40,10 @@ type requestManager struct {
 type MessageHeader struct {
 	PayloadHeaders
 	RequestId int32 `json:"requestId,omitempty"`
+}
+
+func (h *MessageHeader) setRequestId(requestId int32) {
+	h.RequestId = requestId
 }
 
 func newRequestManager(ch *cast.Channel) *requestManager {
@@ -95,10 +103,12 @@ func (m *requestManager) unregister(ch chan<- *Response) {
 	}
 }
 
-func (m *requestManager) Send(payload *MessageHeader, response chan<- *Response) error {
-	payload.RequestId = atomic.AddInt32(&m.requestId, 1)
+func (m *requestManager) Send(payload Request, response chan<- *Response) error {
+	requestId := atomic.AddInt32(&m.requestId, 1)
 
-	m.requestHandlers[payload.RequestId] = response
+	payload.setRequestId(requestId)
+
+	m.requestHandlers[requestId] = response
 
 	err := send(m.ch, payload)
 	if err != nil {
@@ -108,7 +118,7 @@ func (m *requestManager) Send(payload *MessageHeader, response chan<- *Response)
 	return nil
 }
 
-func (m *requestManager) Request(payload *MessageHeader /*, timeout time.Duration */) (*Response, error) {
+func (m *requestManager) Request(payload Request /*, timeout time.Duration */) (*Response, error) {
 	responseCh := make(chan *Response)
 	defer close(responseCh)
 
