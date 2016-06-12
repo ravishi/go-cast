@@ -18,17 +18,17 @@ type ReceiverController struct {
 }
 
 type ReceiverStatus struct {
-	Applications []*ApplicationSession `json:"applications"`
-	Volume       *Volume               `json:"volume,omitempty"`
+	Applications []ApplicationSession `json:"applications"`
+	Volume       *Volume              `json:"volume,omitempty"`
 }
 
 type ApplicationSession struct {
-	AppID       *string      `json:"appId,omitempty"`
-	DisplayName *string      `json:"displayName,omitempty"`
-	Namespaces  []*Namespace `json:"namespaces"`
-	SessionID   *string      `json:"sessionId,omitempty"`
-	StatusText  *string      `json:"statusText,omitempty"`
-	TransportId *string      `json:"transportId,omitempty"`
+	AppID       string      `json:"appId,omitempty"`
+	DisplayName string      `json:"displayName,omitempty"`
+	Namespaces  []Namespace `json:"namespaces"`
+	SessionID   string      `json:"sessionId,omitempty"`
+	StatusText  string      `json:"statusText,omitempty"`
+	TransportId string      `json:"transportId,omitempty"`
 }
 
 type Namespace struct {
@@ -36,8 +36,8 @@ type Namespace struct {
 }
 
 type Volume struct {
-	Level *float64 `json:"level,omitempty"`
-	Muted *bool    `json:"muted,omitempty"`
+	Level float64 `json:"level,omitempty"`
+	Muted bool    `json:"muted,omitempty"`
 }
 
 func NewReceiverController(device *cast.Device, sourceId, destinationId string) *ReceiverController {
@@ -52,25 +52,25 @@ func NewReceiverController(device *cast.Device, sourceId, destinationId string) 
 }
 
 type statusResponse struct {
-	MessageHeader
+	ResponseHeader
 	Status *ReceiverStatus `json:"status,omitempty"`
 }
 
 func (r *ReceiverController) GetStatus() (*ReceiverStatus, error) {
-	return r.requestStatus(&MessageHeader{
+	return r.requestStatus(&RequestHeader{
 		PayloadHeaders: PayloadHeaders{"GET_STATUS"},
 	})
 }
 
 func (r *ReceiverController) SetVolume(level float64) (*ReceiverStatus, error) {
 	request := &struct {
-		MessageHeader
+		RequestHeader
 		Volume *Volume `json:"volume"`
 	}{
-		MessageHeader: MessageHeader{
+		RequestHeader: RequestHeader{
 			PayloadHeaders: PayloadHeaders{Type: "SET_VOLUME"},
 		},
-		Volume: &Volume{Level: &level},
+		Volume: &Volume{Level: level},
 	}
 
 	return r.requestStatus(request)
@@ -78,13 +78,13 @@ func (r *ReceiverController) SetVolume(level float64) (*ReceiverStatus, error) {
 
 func (r *ReceiverController) SetMuted(muted bool) (*ReceiverStatus, error) {
 	request := &struct {
-		MessageHeader
+		RequestHeader
 		Volume *Volume `json:"volume"`
 	}{
-		MessageHeader: MessageHeader{
+		RequestHeader: RequestHeader{
 			PayloadHeaders: PayloadHeaders{Type: "SET_VOLUME"},
 		},
-		Volume: &Volume{Muted: &muted},
+		Volume: &Volume{Muted: muted},
 	}
 
 	return r.requestStatus(request)
@@ -92,10 +92,10 @@ func (r *ReceiverController) SetMuted(muted bool) (*ReceiverStatus, error) {
 
 func (r *ReceiverController) Launch(appId string) (*ReceiverStatus, error) {
 	request := &struct {
-		MessageHeader
+		RequestHeader
 		AppID string `json:"appId"`
 	}{
-		MessageHeader: MessageHeader{
+		RequestHeader: RequestHeader{
 			PayloadHeaders: PayloadHeaders{Type: "LAUNCH"},
 		},
 		AppID: appId,
@@ -106,7 +106,7 @@ func (r *ReceiverController) Launch(appId string) (*ReceiverStatus, error) {
 		return nil, err
 	}
 
-	responseHeader := &MessageHeader{}
+	responseHeader := &RequestHeader{}
 	err = response.Unmarshal(responseHeader)
 	if err != nil {
 		return nil, err
@@ -114,7 +114,7 @@ func (r *ReceiverController) Launch(appId string) (*ReceiverStatus, error) {
 
 	if responseHeader.Type == "LAUNCH_ERROR" {
 		errorReponse := &struct {
-			MessageHeader
+			RequestHeader
 			Reason interface{}
 		}{}
 		err = response.Unmarshal(errorReponse)
@@ -133,10 +133,10 @@ func (r *ReceiverController) Launch(appId string) (*ReceiverStatus, error) {
 
 func (r *ReceiverController) Stop(sessionId string) (*ReceiverStatus, error) {
 	request := &struct {
-		MessageHeader
+		RequestHeader
 		SessionID string `json:"sesssionId"`
 	}{
-		MessageHeader: MessageHeader{
+		RequestHeader: RequestHeader{
 			PayloadHeaders: PayloadHeaders{Type: "STOP"},
 		},
 		SessionID: sessionId,

@@ -13,7 +13,7 @@ type Request interface {
 }
 
 type Response struct {
-	header  *MessageHeader
+	header  *RequestHeader
 	message *json.RawMessage
 }
 
@@ -37,12 +37,14 @@ type requestManager struct {
 	requestHandlers map[int32]chan<- *Response
 }
 
-type MessageHeader struct {
+type RequestHeader struct {
 	PayloadHeaders
-	RequestId int32 `json:"requestId,omitempty"`
+	RequestId int32 `json:"requestId"`
 }
 
-func (h *MessageHeader) setRequestId(requestId int32) {
+type ResponseHeader RequestHeader
+
+func (h *RequestHeader) setRequestId(requestId int32) {
 	h.RequestId = requestId
 }
 
@@ -75,7 +77,7 @@ func (m *requestManager) handleForever() {
 					continue
 				}
 
-				header := &MessageHeader{}
+				header := &RequestHeader{}
 				err = json.Unmarshal(*rawMessage, header)
 				if err != nil {
 					continue
