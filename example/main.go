@@ -7,6 +7,7 @@ import (
 	"github.com/oleksandr/bonjour"
 	"github.com/ravishi/go-cast/cast"
 	"github.com/ravishi/go-cast/cast/ctrl"
+	"github.com/ravishi/go-vlc"
 	"log"
 	"os"
 	"os/signal"
@@ -106,61 +107,9 @@ func consumeService(cancel <-chan os.Signal, service *bonjour.ServiceEntry) erro
 	defer receiver.Close()
 
 	go func() {
-		appId := "CC1AD845"
-		sourceId := "client-123"
-
-		status, err := receiver.Launch(appId)
+		err := playSomething(device, receiver, cancel)
 		if err != nil {
-			log.Println("Failed to launch:", err)
-			return
-		}
-
-		session := new(ctrl.ApplicationSession)
-		for _, s := range status.Applications {
-			if s.AppID == appId {
-				session = &s
-				break
-			}
-		}
-
-		if session == nil {
-			log.Println("Apparently we couldnt launch")
-			return
-		}
-
-		mediaConnection := ctrl.NewConnectionController(device, sourceId, session.TransportId)
-		defer mediaConnection.Close()
-
-		err = mediaConnection.Connect()
-		if err != nil {
-			log.Println("Failed to connect to the media receiver:", err)
-			return
-		}
-
-		mediaInfo := ctrl.MediaInfo{
-			ContentID:   "http://commondatastorage.googleapis.com/gtv-videos-bucket/big_buck_bunny_1080p.mp4",
-			ContentType: "video/mp4",
-			StreamType:  ctrl.StreamTypeBuffered,
-			Metadata: map[string]interface{}{
-				"type":         0,
-				"metadataType": 0,
-				"title":        "Big Buck Bunny",
-			},
-		}
-
-		media := ctrl.NewMediaController(device, sourceId, session.TransportId)
-		_, err = media.Load(mediaInfo, ctrl.LoadOptions{
-			AutoPlay: true,
-		})
-
-		if err != nil {
-			log.Println("Error while loading media", err)
-			return
-		}
-
-		select {
-		case <-cancel:
-			return
+			fmt.Fprintln(os.Stderr, err)
 		}
 	}()
 
@@ -169,6 +118,107 @@ func consumeService(cancel <-chan os.Signal, service *bonjour.ServiceEntry) erro
 		return err
 	case <-cancel:
 		return Canceled
+	}
+
+	return nil
+}
+
+func playSomething(device *cast.Device, receiver *ctrl.ReceiverController, cancel <-chan os.Signal) error {
+	appId := "CC1AD845"
+	sourceId := "client-123"
+
+	status, err := receiver.Launch(appId)
+	if err != nil {
+		return fmt.Errorf("Failed to launch: %s", err)
+	}
+
+	session := new(ctrl.ApplicationSession)
+	for _, s := range status.Applications {
+		if s.AppID == appId {
+			session = &s
+			break
+		}
+	}
+
+	if session == nil {
+		return errors.New("Apparently we couldnt launch")
+	}
+
+	mediaConnection := ctrl.NewConnectionController(device, sourceId, session.TransportId)
+	defer mediaConnection.Close()
+
+	err = mediaConnection.Connect()
+	if err != nil {
+		return fmt.Errorf("Failed to connect to the media receiver: %s", err)
+	}
+
+	vlc, err := vlc.NewInstance("--sout-avcodec-strict=-2")
+	if err != nil {
+		return fmt.Errorf("Failed to create VLC instance: %s", err)
+	}
+
+	vlcMedia, err := vlc.AddBroadcast(
+		"foo",
+		"file:///Users/dirley/Movies/The.Prestige.2006.1080p.BluRay.x264.anoXmous/The.Prestige.2006.1080p.BluRay.x264.anoXmous_.mp4",
+		"#transcode{acodec=mp3,vcodec=h264}:http{dst=:8090/stream,mux=avformat{mux=matroska},access=http{mime=video/x-matroska}}",
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("Failed to create VLC Broadcast: %s", err)
+	}
+
+	err = vlc.Play(vlcMedia)
+	if err != nil {
+		return fmt.Errorf("Failed to play VLC Broadcast: %s", err)
+	}
+
+	mediaInfo := ctrl.MediaInfo{
+		ContentID:   "http://192.168.25.142:8090/stream",
+		ContentType: "video/x-matroska",
+		StreamType:  ctrl.StreamTypeBuffered,
+		Metadata: map[string]interface{}{
+			"type":         0,
+			"metadataType": 0,
+			"title":        "Big Buck Bunny",
+		},
+	}
+
+	media := ctrl.NewMediaController(device, sourceId, session.TransportId)
+	sessionStatus, err := media.Load(mediaInfo, ctrl.LoadOptions{
+		AutoPlay: true,
+	})
+
+	if err != nil {
+		return fmt.Errorf("Error while loading media: %s", err)
+	}
+
+	waitTime := time.Second * 2
+
+	select {
+	case <-cancel:
+	case <-time.After(waitTime):
+	}
+
+	for {
+		sessionStatus, err = media.Play(sessionStatus[0].MediaSessionID)
+		if err != nil {
+			return fmt.Errorf("Failed to play: %s", err)
+		}
+
+		if sessionStatus[0].PlayerState != "PLAYING" {
+			log.Println("Player still", sessionStatus[0].PlayerState, "... Trying again in", waitTime)
+		} else {
+			break
+		}
+
+		select {
+		case <-cancel:
+		case <-time.After(waitTime):
+		}
+	}
+
+	select {
+	case <-cancel:
 	}
 
 	return nil

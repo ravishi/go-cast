@@ -162,6 +162,22 @@ func (r *MediaController) Load(media MediaInfo, options LoadOptions) ([]MediaSta
 	return mediaStatusResponse.Status, nil
 }
 
+type sessionRequest struct {
+	RequestHeader
+	MediaSessionID int `json:"mediaSessionId"`
+}
+
+func (r *MediaController) Play(sessionId int) ([]MediaStatus, error) {
+	request := &sessionRequest{
+		RequestHeader: RequestHeader{
+			PayloadHeaders: PayloadHeaders{Type: "PLAY"},
+		},
+		MediaSessionID: sessionId,
+	}
+
+	return r.requestStatus(request)
+}
+
 func (r *MediaController) requestStatus(request Request) ([]MediaStatus, error) {
 	response, err := r.rm.Request(request)
 	if err != nil {
