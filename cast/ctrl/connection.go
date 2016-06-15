@@ -12,9 +12,10 @@ const (
 )
 
 var (
-	CloseCommand   = PayloadHeaders{Type: "CLOSE"}
-	ConnectCommand = PayloadHeaders{Type: "CONNECT"}
-	Closed         = errors.New("Closed")
+	Closed = errors.New("Closed")
+
+	closeCommand   = PayloadHeaders{Type: "CLOSE"}
+	connectCommand = PayloadHeaders{Type: "CONNECT"}
 )
 
 type ConnectionController struct {
@@ -41,12 +42,12 @@ func NewConnectionController(device *cast.Device, sourceId, destinationId string
 }
 
 func (c *ConnectionController) Connect() error {
-	return send(c.ch, ConnectCommand)
+	return send(c.ch, &connectCommand)
 }
 
 func (c *ConnectionController) Close() {
 	if c.err == nil {
-		send(c.ch, CloseCommand)
+		send(c.ch, &closeCommand)
 		close(c.closed)
 	}
 	c.ch.Close()
@@ -74,7 +75,7 @@ func (c *ConnectionController) waitClose() {
 				return
 			}
 
-			if headers.Type == "CLOSE" {
+			if headers.Type == closeCommand.Type {
 				c.err = Closed
 				close(c.closed)
 				return

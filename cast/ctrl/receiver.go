@@ -11,15 +11,20 @@ const (
 )
 
 type ReceiverController struct {
+	rm    *requestManager
 	ch    *cast.Channel
 	ctx   context.Context
 	close context.CancelFunc
-	rm    *requestManager
 }
 
 type ReceiverStatus struct {
-	Applications []ApplicationSession `json:"applications"`
 	Volume       *Volume              `json:"volume,omitempty"`
+	Applications []ApplicationSession `json:"applications"`
+}
+
+type Volume struct {
+	Level float64 `json:"level,omitempty"`
+	Muted bool    `json:"muted,omitempty"`
 }
 
 type ApplicationSession struct {
@@ -35,11 +40,6 @@ type Namespace struct {
 	Name string `json:"name"`
 }
 
-type Volume struct {
-	Level float64 `json:"level,omitempty"`
-	Muted bool    `json:"muted,omitempty"`
-}
-
 func NewReceiverController(device *cast.Device, sourceId, destinationId string) *ReceiverController {
 	ctx, close := context.WithCancel(context.Background())
 	ch := device.NewChannel(ReceiverNamespace, sourceId, destinationId)
@@ -51,41 +51,40 @@ func NewReceiverController(device *cast.Device, sourceId, destinationId string) 
 	}
 }
 
-type statusResponse struct {
-	ResponseHeader
-	Status *ReceiverStatus `json:"status,omitempty"`
-}
-
 func (r *ReceiverController) GetStatus() (*ReceiverStatus, error) {
 	return r.requestStatus(&RequestHeader{
-		PayloadHeaders: PayloadHeaders{"GET_STATUS"},
+		PayloadHeaders: PayloadHeaders{
+			Type: "GET_STATUS",
+		},
 	})
 }
 
-func (r *ReceiverController) SetVolume(level float64) (*ReceiverStatus, error) {
-	request := &struct {
+func newSetVolumeRequest(volume *Volume) Request {
+	return &struct {
 		RequestHeader
 		Volume *Volume `json:"volume"`
 	}{
 		RequestHeader: RequestHeader{
-			PayloadHeaders: PayloadHeaders{Type: "SET_VOLUME"},
+			PayloadHeaders: PayloadHeaders{
+				Type: "SET_VOLUME",
+			},
 		},
-		Volume: &Volume{Level: level},
+		Volume: volume,
 	}
+}
+
+func (r *ReceiverController) SetVolume(level float64) (*ReceiverStatus, error) {
+	request := newSetVolumeRequest(&Volume{
+		Level: level,
+	})
 
 	return r.requestStatus(request)
 }
 
 func (r *ReceiverController) SetMuted(muted bool) (*ReceiverStatus, error) {
-	request := &struct {
-		RequestHeader
-		Volume *Volume `json:"volume"`
-	}{
-		RequestHeader: RequestHeader{
-			PayloadHeaders: PayloadHeaders{Type: "SET_VOLUME"},
-		},
-		Volume: &Volume{Muted: muted},
-	}
+	request := newSetVolumeRequest(&Volume{
+		Muted: muted,
+	})
 
 	return r.requestStatus(request)
 }
@@ -118,7 +117,7 @@ func (r *ReceiverController) Launch(appId string) (*ReceiverStatus, error) {
 			Reason interface{}
 		}{}
 		err = response.Unmarshal(errorReponse)
-		err = fmt.Errorf("Launch error: %s", err)
+		err = fmt.Errorf("Launch error: %s", errorReponse.Reason)
 		return nil, err
 	}
 
@@ -148,6 +147,11 @@ func (r *ReceiverController) Stop(sessionId string) (*ReceiverStatus, error) {
 func (r *ReceiverController) Close() {
 	r.rm.Close()
 	r.close()
+}
+
+type statusResponse struct {
+	ResponseHeader
+	Status *ReceiverStatus `json:"status,omitempty"`
 }
 
 func (r *ReceiverController) requestStatus(request Request) (*ReceiverStatus, error) {

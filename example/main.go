@@ -11,11 +11,13 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
 func main() {
-	err := actualMain()
+	err := actualMain(os.Args)
 	if err == nil || err == Canceled {
 		os.Exit(0)
 	} else {
@@ -24,7 +26,11 @@ func main() {
 	}
 }
 
-func actualMain() error {
+func actualMain(args []string) error {
+	if len(args) < 3 {
+		return errors.New("Not enough args. Please, try: example MOVIE_FILE --any-extra-vlc-args")
+	}
+
 	resolver, err := bonjour.NewResolver(nil)
 	if err != nil {
 		return err
@@ -49,7 +55,7 @@ func actualMain() error {
 		case service, ok := <-services:
 			if ok {
 				fmt.Println("Found device:", service.Instance)
-				err := consumeService(sigCh, service)
+				err := consumeService(sigCh, service, args)
 				if err != nil {
 					return err
 				} else {
@@ -66,7 +72,7 @@ func actualMain() error {
 
 var Canceled = errors.New("Canceled")
 
-func consumeService(cancel <-chan os.Signal, service *bonjour.ServiceEntry) error {
+func consumeService(cancel <-chan os.Signal, service *bonjour.ServiceEntry, args []string) error {
 	addr := fmt.Sprintf("%s:%d", service.AddrIPv4, service.Port)
 
 	conn, err := tls.Dial("tcp", addr, &tls.Config{
@@ -107,7 +113,7 @@ func consumeService(cancel <-chan os.Signal, service *bonjour.ServiceEntry) erro
 	defer receiver.Close()
 
 	go func() {
-		err := playSomething(device, receiver, cancel)
+		err := playSomething(device, receiver, args, cancel)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 		}
@@ -123,7 +129,7 @@ func consumeService(cancel <-chan os.Signal, service *bonjour.ServiceEntry) erro
 	return nil
 }
 
-func playSomething(device *cast.Device, receiver *ctrl.ReceiverController, cancel <-chan os.Signal) error {
+func playSomething(device *cast.Device, receiver *ctrl.ReceiverController, args []string, cancel <-chan os.Signal) error {
 	appId := "CC1AD845"
 	sourceId := "client-123"
 
@@ -152,14 +158,21 @@ func playSomething(device *cast.Device, receiver *ctrl.ReceiverController, cance
 		return fmt.Errorf("Failed to connect to the media receiver: %s", err)
 	}
 
-	vlc, err := vlc.NewInstance("--sout-avcodec-strict=-2")
+	vlc, err := vlc.NewInstance(args[2:]...)
 	if err != nil {
 		return fmt.Errorf("Failed to create VLC instance: %s", err)
 	}
 
+	url := args[1]
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		absUrl, err := filepath.Abs(url)
+		if err != nil {
+			url = absUrl
+		}
+	}
+
 	vlcMedia, err := vlc.AddBroadcast(
-		"foo",
-		"file:///Users/dirley/Movies/The.Prestige.2006.1080p.BluRay.x264.anoXmous/The.Prestige.2006.1080p.BluRay.x264.anoXmous_.mp4",
+		"foo", url,
 		"#transcode{acodec=mp3,vcodec=h264}:http{dst=:8090/stream,mux=avformat{mux=matroska},access=http{mime=video/x-matroska}}",
 		nil,
 	)

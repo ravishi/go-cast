@@ -1,8 +1,10 @@
 package ctrl
 
 import (
+	"encoding/json"
 	"github.com/ravishi/go-cast/cast"
 	"golang.org/x/net/context"
+	"log"
 	"time"
 )
 
@@ -11,7 +13,8 @@ const (
 )
 
 var (
-	PingCommand = PayloadHeaders{Type: "PING"}
+	pingCommand = PayloadHeaders{Type: "PING"}
+	pongCommand = PayloadHeaders{Type: "PONG"}
 )
 
 type HeartbeatController struct {
@@ -30,9 +33,7 @@ func NewHeartbeatController(device *cast.Device, sourceId, destinationId string)
 }
 
 func (c *HeartbeatController) Ping() error {
-	return send(c.ch, &PayloadHeaders{
-		Type: PingCommand.Type,
-	})
+	return send(c.ch, &pingCommand)
 }
 
 func (c *HeartbeatController) Close() {
@@ -47,17 +48,20 @@ NEXT:
 
 		for {
 			select {
-			case <-ctx.Done():
-				return ctx.Err()
 			case message, ok := <-c.ch.Read():
 				if !ok {
-					// XXX Channel got closed. What should we do?
 					return nil
 				}
-				payload, err := getHeaders(message)
-				if err == nil && payload.Type == "PONG" {
+
+				payload := &PayloadHeaders{}
+				err := json.Unmarshal([]byte(*message.PayloadUtf8), payload)
+				if err != nil {
+					log.Println("Error while unmarshaling beat response:", err)
+				} else if payload.Type == pongCommand.Type {
 					continue NEXT
 				}
+			case <-ctx.Done():
+				return ctx.Err()
 			case <-time.After(interval):
 			}
 

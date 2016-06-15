@@ -18,7 +18,7 @@ type MediaController struct {
 	rm    *requestManager
 }
 
-type MediaRequest struct {
+type mediaRequest struct {
 	RequestHeader
 	MediaSessionID int `json:"mediaSessionId"`
 }
