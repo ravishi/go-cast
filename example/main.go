@@ -7,18 +7,26 @@ import (
 	"github.com/oleksandr/bonjour"
 	"github.com/ravishi/go-cast/cast"
 	"github.com/ravishi/go-cast/cast/ctrl"
-	"github.com/ravishi/go-vlc"
+	"golang.org/x/net/context"
+	"gopkg.in/alecthomas/kingpin.v2"
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
-	"strings"
 	"time"
 )
 
+var (
+	urlFlag         = kingpin.Flag("url", "Stream URL.").Short('u').Required().URL()
+	titleFlag       = kingpin.Flag("title", "The title of the stream.").Short('t').String()
+	contentTypeFlag = kingpin.Flag("content-type", "The content-type of the stream.").Short('c').String()
+)
+
 func main() {
-	err := actualMain(os.Args)
-	if err == nil || err == Canceled {
+	kingpin.UsageTemplate(kingpin.CompactUsageTemplate).Author("Dirley Rodrigues")
+	kingpin.CommandLine.Help = "A simple command line player for your Chromecast."
+	kingpin.Parse()
+	err := actualMain()
+	if err == nil || err == context.Canceled {
 		os.Exit(0)
 	} else {
 		fmt.Fprintln(os.Stderr, err)
@@ -26,11 +34,7 @@ func main() {
 	}
 }
 
-func actualMain(args []string) error {
-	if len(args) < 3 {
-		return errors.New("Not enough args. Please, try: example MOVIE_FILE --any-extra-vlc-args")
-	}
-
+func actualMain() error {
 	resolver, err := bonjour.NewResolver(nil)
 	if err != nil {
 		return err
@@ -48,6 +52,14 @@ func actualMain(args []string) error {
 	signal.Notify(sigCh, os.Interrupt, os.Kill)
 	defer signal.Stop(sigCh)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		select {
+		case <-sigCh:
+			cancel()
+		}
+	}()
+
 	for {
 		fmt.Println("Searching devices...")
 
@@ -55,7 +67,7 @@ func actualMain(args []string) error {
 		case service, ok := <-services:
 			if ok {
 				fmt.Println("Found device:", service.Instance)
-				err := consumeService(sigCh, service, args)
+				err := consumeService(service, ctx)
 				if err != nil {
 					return err
 				} else {
@@ -64,15 +76,13 @@ func actualMain(args []string) error {
 			} else {
 				return errors.New("Discovery closed unexpectedly")
 			}
-		case <-sigCh:
-			return nil
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 	}
 }
 
-var Canceled = errors.New("Canceled")
-
-func consumeService(cancel <-chan os.Signal, service *bonjour.ServiceEntry, args []string) error {
+func consumeService(service *bonjour.ServiceEntry, ctx context.Context) error {
 	addr := fmt.Sprintf("%s:%d", service.AddrIPv4, service.Port)
 
 	conn, err := tls.Dial("tcp", addr, &tls.Config{
@@ -100,9 +110,10 @@ func consumeService(cancel <-chan os.Signal, service *bonjour.ServiceEntry, args
 	heartbeat := ctrl.NewHeartbeatController(device, "sender-0", "receiver-0")
 	defer heartbeat.Close()
 
-	// send a PING every 5s, bail after 10.
+	// Beat until it fails
 	heartbeatError := make(chan error)
 	go func() {
+		// send a PING every 5s, bail after 10.
 		err := heartbeat.Beat(time.Second*5, 2)
 		if err != nil {
 			heartbeatError <- err
@@ -112,24 +123,6 @@ func consumeService(cancel <-chan os.Signal, service *bonjour.ServiceEntry, args
 	receiver := ctrl.NewReceiverController(device, "sender-0", "receiver-0")
 	defer receiver.Close()
 
-	go func() {
-		err := playSomething(device, receiver, args, cancel)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-		}
-	}()
-
-	select {
-	case err := <-heartbeatError:
-		return err
-	case <-cancel:
-		return Canceled
-	}
-
-	return nil
-}
-
-func playSomething(device *cast.Device, receiver *ctrl.ReceiverController, args []string, cancel <-chan os.Signal) error {
 	appId := "CC1AD845"
 	sourceId := "client-123"
 
@@ -158,102 +151,27 @@ func playSomething(device *cast.Device, receiver *ctrl.ReceiverController, args 
 		return fmt.Errorf("Failed to connect to the media receiver: %s", err)
 	}
 
-	vlc, err := vlc.NewInstance(args[2:]...)
-	if err != nil {
-		return fmt.Errorf("Failed to create VLC instance: %s", err)
-	}
-
-	url := args[1]
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		absUrl, err := filepath.Abs(url)
-		if err != nil {
-			url = absUrl
-		}
-	}
-
-	vlcMedia, err := vlc.AddBroadcast(
-		"foo", url,
-		"#transcode{acodec=mp3,vcodec=h264}:http{dst=:8090/stream,mux=avformat{mux=matroska},access=http{mime=video/x-matroska}}",
-		nil,
-	)
-	if err != nil {
-		return fmt.Errorf("Failed to create VLC Broadcast: %s", err)
-	}
-
-	err = vlc.Play(vlcMedia)
-	if err != nil {
-		return fmt.Errorf("Failed to play VLC Broadcast: %s", err)
-	}
-
 	mediaInfo := ctrl.MediaInfo{
-		ContentID:   "http://192.168.25.142:8090/stream",
-		ContentType: "video/x-matroska",
-		StreamType:  ctrl.StreamTypeLive,
+		ContentID:   (*urlFlag).String(),
+		ContentType: *contentTypeFlag,
+		StreamType:  ctrl.StreamTypeBuffered,
 		Metadata: map[string]interface{}{
 			"type":         0,
 			"metadataType": 0,
-			"title":        "Big Buck Bunny",
+			"title":        *titleFlag,
 		},
 	}
 
 	media := ctrl.NewMediaController(device, sourceId, session.TransportId)
-	sessionStatus, err := media.Load(mediaInfo, ctrl.LoadOptions{
+	_, err = media.Load(mediaInfo, ctrl.LoadOptions{
 		AutoPlay: true,
 	})
-
 	if err != nil {
 		return fmt.Errorf("Error while loading media: %s", err)
 	}
 
-	waitTime := time.Second * 2
-
 	select {
-	case <-cancel:
-	case <-time.After(waitTime):
+	case <-ctx.Done():
+		return nil
 	}
-
-	sessionId := sessionStatus[0].MediaSessionID
-
-	for {
-		sessionStatus, err = media.Play(sessionId)
-		if err != nil {
-			return fmt.Errorf("Failed to play: %s", err)
-		}
-
-		if sessionStatus[0].PlayerState != "PLAYING" {
-			log.Println("Player still", sessionStatus[0].PlayerState, "... Trying again in", waitTime)
-			if sessionStatus[0].MediaSessionID > 0 {
-				sessionId = sessionStatus[0].MediaSessionID
-			}
-		} else {
-			break
-		}
-
-		select {
-		case <-cancel:
-		case <-time.After(waitTime):
-		}
-	}
-
-SEEK:
-	select {
-	case <-time.After(time.Second * 15):
-		err := vlc.Seek(vlcMedia, 0.3)
-		if err != nil {
-			return fmt.Errorf("Failed to seek: %s", err)
-		}
-
-		// Fake seek to flush buffers (?)
-		sessionStatus, err = media.Seek(sessionId, float64(time.Now().Unix()+1)/1000.0)
-		if err != nil {
-			return fmt.Errorf("Failed to seek: %s", err)
-		}
-		if sessionStatus[0].MediaSessionID > 0 {
-			sessionId = sessionStatus[0].MediaSessionID
-		}
-		goto SEEK
-	case <-cancel:
-	}
-
-	return nil
 }
