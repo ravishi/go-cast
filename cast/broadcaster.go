@@ -1,61 +1,77 @@
 package cast
 
-type messageBroadcaster struct {
-	pub     chan *CastMessage
-	subbers map[chan<- *CastMessage]bool
-
-	sub   chan chan<- *CastMessage
-	unsub chan chan<- *CastMessage
+type broadcaster struct {
+	pub       chan *CastMessage
+	subs      map[chan<- *CastMessage]filterFunc
+	subReqs   chan *subRequest
+	unsubReqs chan chan<- *CastMessage
 }
 
-func newMessageBroadcaster() *messageBroadcaster {
-	b := &messageBroadcaster{
-		pub:     make(chan *CastMessage),
-		sub:     make(chan chan<- *CastMessage),
-		unsub:   make(chan chan<- *CastMessage),
-		subbers: make(map[chan<- *CastMessage]bool),
+type subRequest struct {
+	ch     chan<- *CastMessage
+	filter filterFunc
+}
+
+type filterFunc func(*CastMessage) bool
+
+func newMessageBroadcaster() *broadcaster {
+	b := &broadcaster{
+		pub:       make(chan *CastMessage),
+		subs:      make(map[chan<- *CastMessage]filterFunc),
+		subReqs:   make(chan *subRequest),
+		unsubReqs: make(chan chan<- *CastMessage),
 	}
 	go b.broadcastForever()
 	return b
 }
 
-func (b *messageBroadcaster) broadcast(m *CastMessage) {
-	for ch := range b.subbers {
-		ch <- m
-	}
-}
-
-func (b *messageBroadcaster) broadcastForever() {
-	defer close(b.pub)
-	defer close(b.unsub)
-	for {
-		select {
-		case m := <-b.pub:
-			b.broadcast(m)
-		case ch, ok := <-b.sub:
-			if ok {
-				b.subbers[ch] = true
-			} else {
-				return
-			}
-		case ch := <-b.unsub:
-			delete(b.subbers, ch)
+func (b *broadcaster) broadcast(m *CastMessage) {
+	for ch := range b.subs {
+		if filter := b.subs[ch]; filter == nil || filter(m) {
+			ch <- m
 		}
 	}
 }
 
-func (b *messageBroadcaster) Pub() chan<- *CastMessage {
-	return b.pub
+func (b *broadcaster) broadcastForever() {
+	defer close(b.pub)
+	defer close(b.unsubReqs)
+	for {
+		select {
+		case m := <-b.pub:
+			b.broadcast(m)
+		case req, ok := <-b.subReqs:
+			if ok {
+				b.subs[req.ch] = req.filter
+			} else {
+				return
+			}
+		case ch := <-b.unsubReqs:
+			delete(b.subs, ch)
+		}
+	}
 }
 
-func (b *messageBroadcaster) Sub() chan<- chan<- *CastMessage {
-	return b.sub
+func (b *broadcaster) Publish(m *CastMessage) {
+	b.pub <- m
 }
 
-func (b *messageBroadcaster) UnSub() chan<- chan<- *CastMessage {
-	return b.unsub
+func noFilter(*CastMessage) bool {
+	return true
 }
 
-func (b *messageBroadcaster) Close() {
-	close(b.sub)
+func (b *broadcaster) Subscribe(ch chan<- *CastMessage) {
+	b.FilteredSubscribe(ch, noFilter)
+}
+
+func (b *broadcaster) FilteredSubscribe(ch chan<- *CastMessage, filter filterFunc) {
+	b.subReqs <- &subRequest{ch: ch, filter: filter}
+}
+
+func (b *broadcaster) Unsub(ch chan<- *CastMessage) {
+	b.unsubReqs <- ch
+}
+
+func (b *broadcaster) Close() {
+	close(b.subReqs)
 }

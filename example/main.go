@@ -188,7 +188,7 @@ func playSomething(device *cast.Device, receiver *ctrl.ReceiverController, args 
 	mediaInfo := ctrl.MediaInfo{
 		ContentID:   "http://192.168.25.142:8090/stream",
 		ContentType: "video/x-matroska",
-		StreamType:  ctrl.StreamTypeBuffered,
+		StreamType:  ctrl.StreamTypeLive,
 		Metadata: map[string]interface{}{
 			"type":         0,
 			"metadataType": 0,
@@ -212,14 +212,19 @@ func playSomething(device *cast.Device, receiver *ctrl.ReceiverController, args 
 	case <-time.After(waitTime):
 	}
 
+	sessionId := sessionStatus[0].MediaSessionID
+
 	for {
-		sessionStatus, err = media.Play(sessionStatus[0].MediaSessionID)
+		sessionStatus, err = media.Play(sessionId)
 		if err != nil {
 			return fmt.Errorf("Failed to play: %s", err)
 		}
 
 		if sessionStatus[0].PlayerState != "PLAYING" {
 			log.Println("Player still", sessionStatus[0].PlayerState, "... Trying again in", waitTime)
+			if sessionStatus[0].MediaSessionID > 0 {
+				sessionId = sessionStatus[0].MediaSessionID
+			}
 		} else {
 			break
 		}
@@ -230,7 +235,23 @@ func playSomething(device *cast.Device, receiver *ctrl.ReceiverController, args 
 		}
 	}
 
+SEEK:
 	select {
+	case <-time.After(time.Second * 15):
+		err := vlc.Seek(vlcMedia, 0.3)
+		if err != nil {
+			return fmt.Errorf("Failed to seek: %s", err)
+		}
+
+		// Fake seek to flush buffers (?)
+		sessionStatus, err = media.Seek(sessionId, float64(time.Now().Unix()+1)/1000.0)
+		if err != nil {
+			return fmt.Errorf("Failed to seek: %s", err)
+		}
+		if sessionStatus[0].MediaSessionID > 0 {
+			sessionId = sessionStatus[0].MediaSessionID
+		}
+		goto SEEK
 	case <-cancel:
 	}
 

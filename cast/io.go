@@ -17,12 +17,11 @@ func Read(r io.Reader) (*CastMessage, error) {
 	}
 
 	message := &CastMessage{}
-	err = proto.Unmarshal(data, message)
-	if err != nil {
+	if err := proto.Unmarshal(data, message); err != nil {
 		return nil, err
 	}
 
-	// err can still be io.EOF
+	// We can have a non-nil message + io.EOF error
 	return message, err
 }
 
@@ -59,7 +58,7 @@ func ReadMessage(r io.Reader) ([]byte, error) {
 			return nil, err
 		}
 
-		// err can still be io.EOF
+		// We can have a non-nil message + io.EOF error
 		return buf, err
 	}
 

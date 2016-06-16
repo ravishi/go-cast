@@ -1,20 +1,23 @@
 package cast
 
 type Channel struct {
-	in            chan *CastMessage
-	out           chan *CastMessage
 	device        *Device
+	ch            chan *CastMessage
 	namespace     string
 	sourceId      string
 	destinationId string
 }
 
-func (c *Channel) filterForever() {
-	for message := range c.in {
-		if c.expects(message) {
-			c.out <- message
-		}
+func newChannel(device *Device, namespace, sourceId, destinationId string) *Channel {
+	c := &Channel{
+		ch:            make(chan *CastMessage),
+		device:        device,
+		namespace:     namespace,
+		sourceId:      sourceId,
+		destinationId: destinationId,
 	}
+	c.device.bc.FilteredSubscribe(c.ch, c.expects)
+	return c
 }
 
 func (c *Channel) expects(m *CastMessage) bool {
@@ -36,7 +39,7 @@ func (c *Channel) DestinationId() string {
 }
 
 func (c *Channel) Read() <-chan *CastMessage {
-	return c.out
+	return c.ch
 }
 
 func (c *Channel) Send(payload string) error {
@@ -52,10 +55,6 @@ func (c *Channel) Send(payload string) error {
 }
 
 func (c *Channel) Close() {
-	// The broadcaster is the only one writing on c.in.
-	c.device.bc.UnSub() <- c.in
-	// And only messages coming from c.in are written on c.out.
-	// Therefore, we should close them in this order.
-	close(c.in)
-	close(c.out)
+	c.device.bc.Unsub(c.ch)
+	close(c.ch)
 }

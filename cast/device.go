@@ -8,7 +8,7 @@ import (
 
 type (
 	Device struct {
-		bc        *messageBroadcaster
+		bc        *broadcaster
 		ctx       context.Context
 		conn      io.ReadWriter
 		cancel    context.CancelFunc
@@ -34,17 +34,7 @@ func (d *Device) Context() context.Context {
 }
 
 func (d *Device) NewChannel(namespace, sourceId, destinationId string) *Channel {
-	c := &Channel{
-		in:            make(chan *CastMessage),
-		out:           make(chan *CastMessage),
-		device:        d,
-		namespace:     namespace,
-		sourceId:      sourceId,
-		destinationId: destinationId,
-	}
-	d.bc.Sub() <- c.in
-	go c.filterForever()
-	return c
+	return newChannel(d, namespace, sourceId, destinationId)
 }
 
 func (d *Device) Send(message *CastMessage) error {
@@ -64,10 +54,10 @@ func (d *Device) Run() error {
 		if err == io.ErrNoProgress {
 			continue
 		} else if message != nil {
-			// if err == io.EOF, message can be not null
+			// if err == io.EOF, message can still be not null
 			// and that's why we have this weird branching here.
 			log.Println("<-", message)
-			d.bc.Pub() <- message
+			d.bc.Publish(message)
 		}
 
 		if err != nil {

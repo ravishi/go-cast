@@ -36,7 +36,7 @@ func NewMediaController(device *cast.Device, sourceId, destinationId string) *Me
 
 type mediaStatusResponse struct {
 	ResponseHeader
-	Status []MediaStatus `json:"status"`
+	Status []MediaStatus `json:"status,omitempty"`
 }
 
 type MediaStatus struct {
@@ -168,13 +168,32 @@ type sessionRequest struct {
 }
 
 func (r *MediaController) Play(sessionId int) ([]MediaStatus, error) {
+	return r.sessionRequest(sessionId, "PLAY")
+}
+
+func (r *MediaController) Seek(sessionId int, position float64) ([]MediaStatus, error) {
+	request := &struct {
+		sessionRequest
+		CurrentTime float64 `json:"currentTime"`
+	}{
+		sessionRequest: sessionRequest{
+			RequestHeader: RequestHeader{
+				PayloadHeaders: PayloadHeaders{Type: "SEEK"},
+			},
+			MediaSessionID: sessionId,
+		},
+		CurrentTime: position,
+	}
+	return r.requestStatus(request)
+}
+
+func (r *MediaController) sessionRequest(sessionId int, typ string) ([]MediaStatus, error) {
 	request := &sessionRequest{
 		RequestHeader: RequestHeader{
-			PayloadHeaders: PayloadHeaders{Type: "PLAY"},
+			PayloadHeaders: PayloadHeaders{Type: typ},
 		},
 		MediaSessionID: sessionId,
 	}
-
 	return r.requestStatus(request)
 }
 

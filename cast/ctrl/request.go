@@ -12,20 +12,20 @@ type Request interface {
 	setRequestId(int32)
 }
 
-type Response struct {
+type ResponseHeaders struct {
 	header  *RequestHeader
 	message *json.RawMessage
 }
 
-func (r *Response) Type() string {
+func (r *ResponseHeaders) Type() string {
 	return r.header.Type
 }
 
-func (r *Response) RequestId() int {
+func (r *ResponseHeaders) RequestId() int {
 	return int(r.header.RequestId)
 }
 
-func (r *Response) Unmarshal(v interface{}) error {
+func (r *ResponseHeaders) Unmarshal(v interface{}) error {
 	return json.Unmarshal(*r.message, v)
 }
 
@@ -34,7 +34,7 @@ type requestManager struct {
 	ctx             context.Context
 	close           context.CancelFunc
 	requestId       int32
-	requestHandlers map[int32]chan<- *Response
+	requestHandlers map[int32]chan<- *ResponseHeaders
 }
 
 type RequestHeader struct {
@@ -55,7 +55,7 @@ func newRequestManager(ch *cast.Channel) *requestManager {
 		ctx:             ctx,
 		close:           close,
 		requestId:       0,
-		requestHandlers: make(map[int32]chan<- *Response),
+		requestHandlers: make(map[int32]chan<- *ResponseHeaders),
 	}
 
 	go m.handleForever()
@@ -88,7 +88,7 @@ func (m *requestManager) handleForever() {
 					continue
 				}
 
-				ch <- &Response{header: header, message: rawMessage}
+				ch <- &ResponseHeaders{header: header, message: rawMessage}
 			}
 		case <-m.ctx.Done():
 			return
@@ -96,7 +96,7 @@ func (m *requestManager) handleForever() {
 	}
 }
 
-func (m *requestManager) unregister(ch chan<- *Response) {
+func (m *requestManager) unregister(ch chan<- *ResponseHeaders) {
 	for i, c := range m.requestHandlers {
 		if ch == c {
 			delete(m.requestHandlers, i)
@@ -105,7 +105,7 @@ func (m *requestManager) unregister(ch chan<- *Response) {
 	}
 }
 
-func (m *requestManager) Send(payload Request, response chan<- *Response) error {
+func (m *requestManager) Send(payload Request, response chan<- *ResponseHeaders) error {
 	requestId := atomic.AddInt32(&m.requestId, 1)
 
 	payload.setRequestId(requestId)
@@ -120,8 +120,17 @@ func (m *requestManager) Send(payload Request, response chan<- *Response) error 
 	return nil
 }
 
-func (m *requestManager) Request(payload Request /*, timeout time.Duration */) (*Response, error) {
-	responseCh := make(chan *Response)
+type responseError struct {
+	ResponseHeaders
+	reason string `json:"reason"`
+}
+
+func (e *responseError) Error() string {
+	return e.reason
+}
+
+func (m *requestManager) Request(payload Request /*, timeout time.Duration */) (*ResponseHeaders, error) {
+	responseCh := make(chan *ResponseHeaders)
 	defer close(responseCh)
 
 	err := m.Send(payload, responseCh)
@@ -136,6 +145,14 @@ func (m *requestManager) Request(payload Request /*, timeout time.Duration */) (
 	case response, ok := <-responseCh:
 		if !ok {
 			return nil, fmt.Errorf("Response channel unexpectedly closed")
+		}
+
+		if response.Type() == "INVALID_REQUEST" {
+			responseErr := &responseError{}
+			if err := response.Unmarshal(responseErr); err != nil {
+				return nil, err
+			}
+			return nil, responseErr
 		}
 
 		return response, nil
