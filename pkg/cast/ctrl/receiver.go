@@ -2,7 +2,8 @@ package ctrl
 
 import (
 	"fmt"
-	"github.com/ravishi/go-cast/cast"
+
+	"github.com/ravishi/go-cast/pkg/cast"
 	"golang.org/x/net/context"
 )
 

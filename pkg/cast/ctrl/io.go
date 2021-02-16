@@ -2,7 +2,8 @@ package ctrl
 
 import (
 	"encoding/json"
-	"github.com/ravishi/go-cast/cast"
+
+	"github.com/ravishi/go-cast/pkg/cast"
 )
 
 func send(ch *cast.Channel, payload interface{}) error {

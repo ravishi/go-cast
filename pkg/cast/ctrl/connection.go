@@ -1,10 +1,11 @@
 package ctrl
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
-	"github.com/ravishi/go-cast/cast"
-	"golang.org/x/net/context"
+
+	"github.com/ravishi/go-cast/pkg/cast"
 )
 
 const (

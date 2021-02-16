@@ -3,9 +3,10 @@ package ctrl
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/ravishi/go-cast/cast"
-	"golang.org/x/net/context"
 	"sync/atomic"
+
+	"github.com/ravishi/go-cast/pkg/cast"
+	"golang.org/x/net/context"
 )
 
 type Request interface {

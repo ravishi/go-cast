@@ -1,18 +1,19 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"github.com/oleksandr/bonjour"
-	"github.com/ravishi/go-cast/cast"
-	"github.com/ravishi/go-cast/cast/ctrl"
-	"golang.org/x/net/context"
-	"gopkg.in/alecthomas/kingpin.v2"
 	"log"
 	"os"
 	"os/signal"
 	"time"
+
+	"github.com/oleksandr/bonjour"
+	"github.com/ravishi/go-cast/pkg/cast"
+	"github.com/ravishi/go-cast/pkg/cast/ctrl"
+	"gopkg.in/alecthomas/kingpin.v2"
 )
 
 var (

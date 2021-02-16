@@ -3,8 +3,9 @@ package cast
 import (
 	"encoding/binary"
 	"errors"
-	"github.com/gogo/protobuf/proto"
 	"io"
+
+	"github.com/golang/protobuf/proto"
 )
 
 var IncompleteReadError = errors.New("Failed to read all the data")

@@ -1,7 +1,7 @@
 package cast
 
 import (
-	"github.com/hashicorp/go.net/context"
+	"context"
 	"io"
 	"log"
 )

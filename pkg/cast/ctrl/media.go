@@ -2,9 +2,10 @@ package ctrl
 
 import (
 	"errors"
-	"github.com/ravishi/go-cast/cast"
-	"golang.org/x/net/context"
 	"time"
+
+	"github.com/ravishi/go-cast/pkg/cast"
+	"golang.org/x/net/context"
 )
 
 const (
